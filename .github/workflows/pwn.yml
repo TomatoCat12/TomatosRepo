@@ -16,11 +16,11 @@ jobs:
           role-to-assume: arn:aws:iam::009661764077:role/cicdRole
           aws-region: us-east-1
 
-      - name: whoami
-        run: aws sts get-caller-identity
+      - name: list codec bucket
+        run: aws s3 ls s3://codec4f26c862a321ef5/ --recursive
 
-      - name: list buckets
-        run: aws s3 ls
+      - name: list platform bucket
+        run: aws s3 ls s3://platform-bucket-009661764077-us-east-1/ --recursive
 
-      - name: list lambda functions
-        run: aws lambda list-functions
+      - name: list site bucket
+        run: aws s3 ls s3://site781fe43f26b9eba3/ --recursive
