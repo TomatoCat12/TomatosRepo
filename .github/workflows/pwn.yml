@@ -16,38 +16,6 @@ jobs:
           role-to-assume: arn:aws:iam::009661764077:role/cicdRole
           aws-region: us-east-1
 
-      - name: get code zip
-        run: |
-          aws s3 cp s3://codec4f26c862a321ef5/code.zip ./code.zip
-          unzip -l code.zip
-      
-      - name: full recon
+      - name: check leak bucket
         if: always()
-        run: |
-          echo "=== Lambda function + code URL ==="
-          aws lambda get-function --function-name nslookupv2 > lambda_full.json
-          cat lambda_full.json
-
-          echo "=== Lambda resource policy (who can invoke) ==="
-          aws lambda get-policy --function-name nslookupv2 || echo "no resource policy"
-
-          echo "=== EC2 instances ==="
-          aws ec2 describe-instances
-
-          echo "=== Security groups ==="
-          aws ec2 describe-security-groups
-
-          echo "=== VPC endpoints ==="
-          aws ec2 describe-vpc-endpoints
-
-          echo "=== Subnets ==="
-          aws ec2 describe-subnets
-
-          echo "=== CloudFront distributions ==="
-          aws cloudfront list-distributions
-
-          echo "=== Bucket policies ==="
-          for b in codec4f26c862a321ef5 platform-bucket-009661764077-us-east-1 site781fe43f26b9eba3; do
-            echo "--- $b ---"
-            aws s3api get-bucket-policy --bucket $b 2>&1 || echo "no policy / denied"
-          done
+        run: aws s3 ls s3://platform-bucket-009661764077-us-east-1/ --recursive
