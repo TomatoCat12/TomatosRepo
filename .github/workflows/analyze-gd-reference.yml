@@ -19,7 +19,7 @@ jobs:
         with:
           ref: gd-reference-analysis
 
-      - name: Decode nested level data and sample gameplay
+      - name: Decode nested level data and analyze object properties
         run: |
           set -euo pipefail
           mkdir -p analysis
@@ -27,106 +27,64 @@ jobs:
           import base64, gzip, pathlib, json, collections, xml.etree.ElementTree as ET
           encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
           wrapper = gzip.decompress(base64.b64decode(encoded, altchars=b"-_"))
-          pathlib.Path("analysis/decoded-wrapper.plist").write_bytes(wrapper)
           root = ET.fromstring(wrapper)
-          dictionary = root.find("dict")
-          if dictionary is None:
-              raise ValueError("Expected a Geometry Dash plist-style dict")
-          children = list(dictionary)
+          children = list(root.find("dict"))
           outer = {}
           for i in range(0, len(children), 2):
-              key_node, value_node = children[i], children[i+1]
-              key = key_node.text or ""
-              if value_node.tag in ("s", "k"):
-                  value = value_node.text or ""
-              elif value_node.tag in ("i", "r"):
-                  value = int(value_node.text or "0")
-              elif value_node.tag == "d":
-                  value = float(value_node.text or "0")
-              elif value_node.tag in ("t", "true"):
-                  value = True
-              elif value_node.tag in ("f", "false"):
-                  value = False
-              else:
-                  value = ET.tostring(value_node, encoding="unicode")
-              outer[key] = value
-          level_encoded = outer["k4"]
-          level_compressed = base64.b64decode(level_encoded, altchars=b"-_")
-          level_raw = gzip.decompress(level_compressed)
-          pathlib.Path("analysis/decoded-level.txt").write_bytes(level_raw)
-          text = level_raw.decode("utf-8", errors="replace")
+              k, v = children[i].text or "", children[i+1]
+              if v.tag in ("s", "k"): value = v.text or ""
+              elif v.tag in ("i", "r"): value = int(v.text or "0")
+              elif v.tag == "d": value = float(v.text or "0")
+              elif v.tag in ("t", "true"): value = True
+              elif v.tag in ("f", "false"): value = False
+              else: value = ET.tostring(v, encoding="unicode")
+              outer[k] = value
+          raw = gzip.decompress(base64.b64decode(outer["k4"], altchars=b"-_"))
+          text = raw.decode("utf-8", errors="replace")
           records = text.split(";")
+          property_counts = collections.Counter()
           object_ids = collections.Counter()
-          x_values, y_values = [], []
+          trigger_ids = {"899","901","1006","1007","1049","1268","1346","1347","1616","1812","1814","1815"}
+          triggers = []
           x_bins = collections.Counter()
-          group_ids = collections.Counter()
-          trigger_ids = [899, 901, 1006, 1007, 1049, 1268, 1346, 1347, 1520, 1585, 1595, 1611, 1616, 1811, 1812, 1814, 1815, 1817, 1818, 1819]
-          trigger_counts = collections.Counter()
-          samples = []
-          valid_records = 0
-          for record in records:
-              vals = record.split(",")
-              if len(vals) < 6 or len(vals) % 2:
-                  continue
-              d = dict(zip(vals[::2], vals[1::2]))
-              if "1" not in d:
-                  continue
-              valid_records += 1
+          trigger_x_bins = collections.Counter()
+          x_vals, y_vals = [], []
+          for rec in records:
+              a = rec.split(",")
+              if len(a) < 6 or len(a) % 2: continue
+              d = dict(zip(a[::2], a[1::2]))
+              if "1" not in d: continue
               oid = d["1"]
               object_ids[oid] += 1
-              if oid in {str(v) for v in trigger_ids}:
-                  trigger_counts[oid] += 1
+              property_counts.update(d.keys())
               try:
                   x, y = float(d["2"]), float(d["3"])
-                  x_values.append(x); y_values.append(y)
-                  x_bins[int(x // 1000) * 1000] += 1
-              except (KeyError, ValueError):
-                  pass
-              if "57" in d:
-                  for gid in d["57"].split("."):
-                      if gid:
-                          group_ids[gid] += 1
-              if len(samples) < 20:
-                  samples.append({k:d.get(k) for k in ("1","2","3","6","20","21","24","25","33","51","57","62","108") if k in d})
-          summary = {
-              "wrapper_bytes": len(wrapper),
-              "wrapper_keys": sorted(outer.keys()),
-              "level_name": outer.get("k2"),
-              "level_version": outer.get("kCEK"),
-              "song_id": outer.get("k45"),
-              "inner_encoded_characters": len(level_encoded),
-              "inner_compressed_bytes": len(level_compressed),
-              "inner_decoded_bytes": len(level_raw),
-              "delimiter_counts": {"pipe": text.count("|"), "semicolon": text.count(";"), "comma": text.count(",")},
-              "valid_object_records": valid_records,
-              "object_id_counts_top_100": object_ids.most_common(100),
-              "trigger_id_counts": trigger_counts,
-              "x_extent": [min(x_values), max(x_values)] if x_values else None,
-              "y_extent": [min(y_values), max(y_values)] if y_values else None,
-              "objects_per_1000_x_units": sorted(x_bins.items()),
-              "most_used_group_ids": group_ids.most_common(50),
-              "sample_objects": samples,
-              "inner_prefix": text[:500],
-              "inner_suffix": text[-500:],
+                  x_vals.append(x); y_vals.append(y)
+                  x_bins[int(x // 500) * 500] += 1
+                  if oid in trigger_ids:
+                      trigger_x_bins[int(x // 500) * 500] += 1
+              except (KeyError, ValueError): x = None
+              if oid in trigger_ids and len(triggers) < 300:
+                  triggers.append({k:d.get(k) for k in ("1","2","3","6","20","21","24","25","28","29","30","35","36","51","57","62","71","80","81","96","100","101","108","126","128","129","155","159") if k in d})
+          out = {
+              "level_name": outer.get("k2"), "level_version": outer.get("kCEK"),
+              "song_id": outer.get("k45"), "decoded_bytes": len(raw),
+              "object_records": sum(object_ids.values()),
+              "object_id_counts": object_ids.most_common(100),
+              "property_key_frequency": property_counts.most_common(100),
+              "x_extent": [min(x_vals), max(x_vals)], "y_extent": [min(y_vals), max(y_vals)],
+              "objects_per_500_x": sorted(x_bins.items()),
+              "triggers_per_500_x": sorted(trigger_x_bins.items()),
+              "trigger_samples_first_300": triggers
           }
-          pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-          print(json.dumps(summary, indent=2))
+          pathlib.Path("analysis/deep-analysis.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+          print(json.dumps({k:v for k,v in out.items() if k != "trigger_samples_first_300"}, indent=2))
           PY
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
-          if [ -f videoplayback.mp4 ]; then
-            ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate -of json videoplayback.mp4 > analysis/video-info.json
-            ffmpeg -hide_banner -loglevel error -i videoplayback.mp4 -vf "fps=1/3,scale=320:-1,tile=4x4" -frames:v 1 analysis/gameplay-contact-sheet.jpg
-          fi
-
-      - name: Commit extracted reference material to analysis branch
+      - name: Commit analysis output
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add analysis/
-          if git diff --cached --quiet; then
-            echo "No analysis output generated."
-          else
-            git commit -m "Add Geometry Dash object and section analysis"
-            git push origin HEAD:gd-reference-analysis
-          fi
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Add detailed Geometry Dash object analysis"
+          git push origin HEAD:gd-reference-analysis
