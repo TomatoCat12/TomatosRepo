@@ -24,32 +24,52 @@ jobs:
           set -euo pipefail
           mkdir -p analysis
           python3 - <<'PY'
-          import base64, gzip, pathlib, json, collections, re, plistlib
+          import base64, gzip, pathlib, json, collections, re, xml.etree.ElementTree as ET
           encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
           wrapper = gzip.decompress(base64.b64decode(encoded, altchars=b"-_"))
           pathlib.Path("analysis/decoded-wrapper.plist").write_bytes(wrapper)
-          plist = plistlib.loads(wrapper)
-          level_encoded = plist["k4"]
+          root = ET.fromstring(wrapper)
+          dictionary = root.find("dict")
+          if dictionary is None:
+              raise ValueError("Expected a Geometry Dash plist-style dict")
+          children = list(dictionary)
+          outer = {}
+          for i in range(0, len(children), 2):
+              key_node, value_node = children[i], children[i+1]
+              key = key_node.text or ""
+              if value_node.tag in ("s", "k"):
+                  value = value_node.text or ""
+              elif value_node.tag in ("i", "r"):
+                  value = int(value_node.text or "0")
+              elif value_node.tag == "d":
+                  value = float(value_node.text or "0")
+              elif value_node.tag in ("t", "true"):
+                  value = True
+              elif value_node.tag in ("f", "false"):
+                  value = False
+              else:
+                  value = ET.tostring(value_node, encoding="unicode")
+              outer[key] = value
+          level_encoded = outer["k4"]
           level_compressed = base64.b64decode(level_encoded, altchars=b"-_")
           level_raw = gzip.decompress(level_compressed)
           pathlib.Path("analysis/decoded-level.txt").write_bytes(level_raw)
           text = level_raw.decode("utf-8", errors="replace")
           fields = text.split(",")
-          keys = fields[::2]
-          counts = collections.Counter(keys)
+          counts = collections.Counter(fields[::2])
           summary = {
               "wrapper_bytes": len(wrapper),
-              "plist_keys": sorted(plist.keys()),
-              "level_name": plist.get("k2"),
-              "level_version": plist.get("kCEK"),
+              "wrapper_keys": sorted(outer.keys()),
+              "level_name": outer.get("k2"),
+              "level_version": outer.get("kCEK"),
               "inner_encoded_characters": len(level_encoded),
               "inner_compressed_bytes": len(level_compressed),
               "inner_decoded_bytes": len(level_raw),
-              "inner_prefix": text[:1000],
-              "inner_suffix": text[-1000:],
+              "inner_prefix": text[:1500],
+              "inner_suffix": text[-1500:],
               "comma_fields": len(fields),
               "semicolon_records": len(text.split(";")),
-              "most_common_even_fields": counts.most_common(60),
+              "most_common_even_fields": counts.most_common(80),
           }
           pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
           print(json.dumps(summary, indent=2))
