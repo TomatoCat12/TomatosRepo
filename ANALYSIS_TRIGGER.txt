@@ -1,1 +1,1 @@
-Temporary trigger for detailed Geometry Dash object analysis.
+Temporary trigger for visual gameplay comparison.
