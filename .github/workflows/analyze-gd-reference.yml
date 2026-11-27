@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           mkdir -p analysis
           python3 - <<'PY'
-          import base64, gzip, pathlib, json, collections, re, xml.etree.ElementTree as ET
+          import base64, gzip, pathlib, json, collections, xml.etree.ElementTree as ET
           encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
           wrapper = gzip.decompress(base64.b64decode(encoded, altchars=b"-_"))
           pathlib.Path("analysis/decoded-wrapper.plist").write_bytes(wrapper)
@@ -55,38 +55,59 @@ jobs:
           level_raw = gzip.decompress(level_compressed)
           pathlib.Path("analysis/decoded-level.txt").write_bytes(level_raw)
           text = level_raw.decode("utf-8", errors="replace")
-          semi_records = text.split(";")
+          records = text.split(";")
           object_ids = collections.Counter()
-          coordinate_samples = []
+          x_values, y_values = [], []
+          x_bins = collections.Counter()
+          group_ids = collections.Counter()
+          trigger_ids = [899, 901, 1006, 1007, 1049, 1268, 1346, 1347, 1520, 1585, 1595, 1611, 1616, 1811, 1812, 1814, 1815, 1817, 1818, 1819]
+          trigger_counts = collections.Counter()
+          samples = []
           valid_records = 0
-          for record in semi_records:
+          for record in records:
               vals = record.split(",")
-              if len(vals) >= 6 and len(vals) % 2 == 0:
-                  d = dict(zip(vals[::2], vals[1::2]))
-                  if "1" in d:
-                      object_ids[d["1"]] += 1
-                      valid_records += 1
-                      if len(coordinate_samples) < 12:
-                          coordinate_samples.append({k:d.get(k) for k in ("1","2","3","57","62","64","67","155") if k in d})
-          pipe_parts = text.split("|")
-          comma_records = [x for x in semi_records if "," in x]
+              if len(vals) < 6 or len(vals) % 2:
+                  continue
+              d = dict(zip(vals[::2], vals[1::2]))
+              if "1" not in d:
+                  continue
+              valid_records += 1
+              oid = d["1"]
+              object_ids[oid] += 1
+              if oid in {str(v) for v in trigger_ids}:
+                  trigger_counts[oid] += 1
+              try:
+                  x, y = float(d["2"]), float(d["3"])
+                  x_values.append(x); y_values.append(y)
+                  x_bins[int(x // 1000) * 1000] += 1
+              except (KeyError, ValueError):
+                  pass
+              if "57" in d:
+                  for gid in d["57"].split("."):
+                      if gid:
+                          group_ids[gid] += 1
+              if len(samples) < 20:
+                  samples.append({k:d.get(k) for k in ("1","2","3","6","20","21","24","25","33","51","57","62","108") if k in d})
           summary = {
               "wrapper_bytes": len(wrapper),
               "wrapper_keys": sorted(outer.keys()),
               "level_name": outer.get("k2"),
               "level_version": outer.get("kCEK"),
+              "song_id": outer.get("k45"),
               "inner_encoded_characters": len(level_encoded),
               "inner_compressed_bytes": len(level_compressed),
               "inner_decoded_bytes": len(level_raw),
-              "inner_prefix": text[:1500],
-              "inner_suffix": text[-1500:],
               "delimiter_counts": {"pipe": text.count("|"), "semicolon": text.count(";"), "comma": text.count(",")},
-              "pipe_segment_samples": pipe_parts[:12],
-              "first_comma_records": comma_records[:8],
-              "last_comma_records": comma_records[-8:],
-              "valid_key_value_records": valid_records,
+              "valid_object_records": valid_records,
               "object_id_counts_top_100": object_ids.most_common(100),
-              "coordinate_samples": coordinate_samples,
+              "trigger_id_counts": trigger_counts,
+              "x_extent": [min(x_values), max(x_values)] if x_values else None,
+              "y_extent": [min(y_values), max(y_values)] if y_values else None,
+              "objects_per_1000_x_units": sorted(x_bins.items()),
+              "most_used_group_ids": group_ids.most_common(50),
+              "sample_objects": samples,
+              "inner_prefix": text[:500],
+              "inner_suffix": text[-500:],
           }
           pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
           print(json.dumps(summary, indent=2))
@@ -106,6 +127,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No analysis output generated."
           else
-            git commit -m "Add decoded Geometry Dash reference analysis"
+            git commit -m "Add Geometry Dash object and section analysis"
             git push origin HEAD:gd-reference-analysis
           fi
