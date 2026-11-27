@@ -1,1 +1,1 @@
-Temporary trigger for the Geometry Dash reference analysis workflow. Safe to delete after analysis.
+Temporary trigger for Geometry Dash reference analysis (retry 2).
