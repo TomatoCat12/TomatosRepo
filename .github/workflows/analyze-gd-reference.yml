@@ -55,8 +55,21 @@ jobs:
           level_raw = gzip.decompress(level_compressed)
           pathlib.Path("analysis/decoded-level.txt").write_bytes(level_raw)
           text = level_raw.decode("utf-8", errors="replace")
-          fields = text.split(",")
-          counts = collections.Counter(fields[::2])
+          semi_records = text.split(";")
+          object_ids = collections.Counter()
+          coordinate_samples = []
+          valid_records = 0
+          for record in semi_records:
+              vals = record.split(",")
+              if len(vals) >= 6 and len(vals) % 2 == 0:
+                  d = dict(zip(vals[::2], vals[1::2]))
+                  if "1" in d:
+                      object_ids[d["1"]] += 1
+                      valid_records += 1
+                      if len(coordinate_samples) < 12:
+                          coordinate_samples.append({k:d.get(k) for k in ("1","2","3","57","62","64","67","155") if k in d})
+          pipe_parts = text.split("|")
+          comma_records = [x for x in semi_records if "," in x]
           summary = {
               "wrapper_bytes": len(wrapper),
               "wrapper_keys": sorted(outer.keys()),
@@ -67,9 +80,13 @@ jobs:
               "inner_decoded_bytes": len(level_raw),
               "inner_prefix": text[:1500],
               "inner_suffix": text[-1500:],
-              "comma_fields": len(fields),
-              "semicolon_records": len(text.split(";")),
-              "most_common_even_fields": counts.most_common(80),
+              "delimiter_counts": {"pipe": text.count("|"), "semicolon": text.count(";"), "comma": text.count(",")},
+              "pipe_segment_samples": pipe_parts[:12],
+              "first_comma_records": comma_records[:8],
+              "last_comma_records": comma_records[-8:],
+              "valid_key_value_records": valid_records,
+              "object_id_counts_top_100": object_ids.most_common(100),
+              "coordinate_samples": coordinate_samples,
           }
           pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
           print(json.dumps(summary, indent=2))
