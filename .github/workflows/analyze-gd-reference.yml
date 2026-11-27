@@ -1,0 +1,63 @@
+name: Analyze Geometry Dash reference
+
+on:
+  push:
+    branches:
+      - gd-reference-analysis
+    paths-ignore:
+      - "analysis/**"
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out analysis branch
+        uses: actions/checkout@v4
+        with:
+          ref: gd-reference-analysis
+
+      - name: Decode level and sample gameplay
+        run: |
+          set -euo pipefail
+          mkdir -p analysis
+          python3 - <<'PY'
+          import base64, gzip, pathlib, json, collections, re
+          encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
+          raw = gzip.decompress(base64.b64decode(encoded))
+          out = pathlib.Path("analysis/decoded-level.txt")
+          out.write_bytes(raw)
+          text = raw.decode("utf-8", errors="replace")
+          summary = {
+              "encoded_characters": len(encoded),
+              "compressed_bytes": len(base64.b64decode(encoded)),
+              "decoded_bytes": len(raw),
+              "decoded_prefix": text[:500],
+              "decoded_suffix": text[-500:],
+              "comma_fields": len(text.split(",")),
+              "semicolon_records": len(text.split(";")),
+              "object_id_candidates": collections.Counter(re.findall(r"(?:^|,|;)(?:1|kA1),?([^,;]{1,12})", text)).most_common(30),
+          }
+          pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+          print(json.dumps({k:v for k,v in summary.items() if k != "object_id_candidates"}, indent=2))
+          PY
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          if [ -f videoplayback.mp4 ]; then
+            ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate -of json videoplayback.mp4 > analysis/video-info.json
+            ffmpeg -hide_banner -loglevel error -i videoplayback.mp4 -vf "fps=1/3,scale=320:-1,tile=4x" -frames:v 1 analysis/gameplay-contact-sheet.jpg
+          fi
+
+      - name: Commit extracted reference material to analysis branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add analysis/
+          if git diff --cached --quiet; then
+            echo "No analysis output generated."
+          else
+            git commit -m "Add decoded Geometry Dash reference analysis"
+            git push origin HEAD:gd-reference-analysis
+          fi
