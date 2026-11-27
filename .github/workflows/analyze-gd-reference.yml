@@ -26,13 +26,14 @@ jobs:
           python3 - <<'PY'
           import base64, gzip, pathlib, json, collections, re
           encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
-          raw = gzip.decompress(base64.b64decode(encoded))
+          compressed = base64.b64decode(encoded, altchars=b"-_")
+          raw = gzip.decompress(compressed)
           out = pathlib.Path("analysis/decoded-level.txt")
           out.write_bytes(raw)
           text = raw.decode("utf-8", errors="replace")
           summary = {
               "encoded_characters": len(encoded),
-              "compressed_bytes": len(base64.b64decode(encoded)),
+              "compressed_bytes": len(compressed),
               "decoded_bytes": len(raw),
               "decoded_prefix": text[:500],
               "decoded_suffix": text[-500:],
