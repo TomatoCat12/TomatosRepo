@@ -19,36 +19,46 @@ jobs:
         with:
           ref: gd-reference-analysis
 
-      - name: Decode level and sample gameplay
+      - name: Decode nested level data and sample gameplay
         run: |
           set -euo pipefail
           mkdir -p analysis
           python3 - <<'PY'
-          import base64, gzip, pathlib, json, collections, re
+          import base64, gzip, pathlib, json, collections, re, plistlib
           encoded = pathlib.Path("README.md").read_text(encoding="utf-8").strip()
-          compressed = base64.b64decode(encoded, altchars=b"-_")
-          raw = gzip.decompress(compressed)
-          out = pathlib.Path("analysis/decoded-level.txt")
-          out.write_bytes(raw)
-          text = raw.decode("utf-8", errors="replace")
+          wrapper = gzip.decompress(base64.b64decode(encoded, altchars=b"-_"))
+          pathlib.Path("analysis/decoded-wrapper.plist").write_bytes(wrapper)
+          plist = plistlib.loads(wrapper)
+          level_encoded = plist["k4"]
+          level_compressed = base64.b64decode(level_encoded, altchars=b"-_")
+          level_raw = gzip.decompress(level_compressed)
+          pathlib.Path("analysis/decoded-level.txt").write_bytes(level_raw)
+          text = level_raw.decode("utf-8", errors="replace")
+          fields = text.split(",")
+          keys = fields[::2]
+          counts = collections.Counter(keys)
           summary = {
-              "encoded_characters": len(encoded),
-              "compressed_bytes": len(compressed),
-              "decoded_bytes": len(raw),
-              "decoded_prefix": text[:500],
-              "decoded_suffix": text[-500:],
-              "comma_fields": len(text.split(",")),
+              "wrapper_bytes": len(wrapper),
+              "plist_keys": sorted(plist.keys()),
+              "level_name": plist.get("k2"),
+              "level_version": plist.get("kCEK"),
+              "inner_encoded_characters": len(level_encoded),
+              "inner_compressed_bytes": len(level_compressed),
+              "inner_decoded_bytes": len(level_raw),
+              "inner_prefix": text[:1000],
+              "inner_suffix": text[-1000:],
+              "comma_fields": len(fields),
               "semicolon_records": len(text.split(";")),
-              "object_id_candidates": collections.Counter(re.findall(r"(?:^|,|;)(?:1|kA1),?([^,;]{1,12})", text)).most_common(30),
+              "most_common_even_fields": counts.most_common(60),
           }
           pathlib.Path("analysis/level-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-          print(json.dumps({k:v for k,v in summary.items() if k != "object_id_candidates"}, indent=2))
+          print(json.dumps(summary, indent=2))
           PY
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           if [ -f videoplayback.mp4 ]; then
             ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate -of json videoplayback.mp4 > analysis/video-info.json
-            ffmpeg -hide_banner -loglevel error -i videoplayback.mp4 -vf "fps=1/3,scale=320:-1,tile=4x" -frames:v 1 analysis/gameplay-contact-sheet.jpg
+            ffmpeg -hide_banner -loglevel error -i videoplayback.mp4 -vf "fps=1/3,scale=320:-1,tile=4x4" -frames:v 1 analysis/gameplay-contact-sheet.jpg
           fi
 
       - name: Commit extracted reference material to analysis branch
