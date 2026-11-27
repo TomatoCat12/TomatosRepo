@@ -1,1 +1,1 @@
-Temporary trigger for Geometry Dash reference analysis (retry 3).
+Temporary trigger for Geometry Dash reference analysis (coordinate and trigger statistics).
